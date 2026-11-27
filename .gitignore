@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Secrets — this tool never needs them; never commit them.
+.env
+*.key
+*.pem
+*.secret
+
+# Local test/build media (the tool assembles user-supplied files; outputs
+# are not part of the repo).
+*.mp4
+*.wav
+*.m4a
+*.mp3
+
+# OS
+.DS_Store

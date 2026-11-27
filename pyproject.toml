@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idawati-ops"
+version = "1.0.0"
+description = "All-in-one ops CLI for a solo crypto AI-agent operator (read-only: bounty boards, Binance movers, patrol checks, Sourcify recon, 9:16 video assembly)."
+authors = [{ name = "ModtDoctor Team" }]
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31"]
+readme = "README.md"
+
+[project.scripts]
+idawati-ops = "idawati_ops.cli:main"
+
+[tool.setuptools]
+packages = ["idawati_ops"]
