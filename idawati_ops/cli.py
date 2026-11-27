@@ -123,6 +123,14 @@ def cmd_boards(args: argparse.Namespace) -> int:
 
 
 def cmd_square(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        print(f"square: --limit must be at least 1, got {args.limit}",
+              file=sys.stderr)
+        return 2
+    if args.min_volume < 0:
+        print(f"square: --min-volume must not be negative, got {args.min_volume}",
+              file=sys.stderr)
+        return 2
     try:
         movers = fetch_top_movers(args.min_volume, args.limit)
     except (HttpError, ValueError) as exc:

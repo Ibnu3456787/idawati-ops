@@ -80,6 +80,34 @@ def get_text(url: str, timeout: int = DEFAULT_TIMEOUT) -> str:
     return resp.text
 
 
+def post_text(
+    url: str,
+    payload: dict,
+    timeout: int = DEFAULT_TIMEOUT,
+    headers: dict | None = None,
+) -> str:
+    """POST a JSON body and return the raw response body as text.
+
+    Same failure handling as post_json, but the body is returned
+    unparsed — needed for endpoints that may answer with
+    text/event-stream (SSE) instead of plain JSON.
+
+    Raises HttpError on transport failure or non-2xx status.
+    """
+    merged = dict(_SESSION.headers)
+    if headers:
+        merged.update(headers)
+    try:
+        resp = _SESSION.post(url, json=payload, timeout=timeout, headers=merged)
+    except requests.RequestException as exc:
+        raise HttpError(f"POST {url} failed: {exc}") from exc
+    if resp.status_code >= 400:
+        raise HttpError(
+            f"POST {url} returned HTTP {resp.status_code}", status=resp.status_code
+        )
+    return resp.text
+
+
 def post_json(
     url: str,
     payload: dict,

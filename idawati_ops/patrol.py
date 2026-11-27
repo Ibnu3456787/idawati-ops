@@ -69,7 +69,11 @@ def bsc_balance(wallet: str) -> tuple[bool, str]:
     result = data.get("result")
     if not isinstance(result, str):
         return False, f"unexpected RPC result: {data!r}"
-    return True, f"{wallet} balance {wei_to_bnb(result)} BNB ({result} wei)"
+    try:
+        balance = wei_to_bnb(result)
+    except ValueError:
+        return False, f"unexpected RPC result: {result!r}"
+    return True, f"{wallet} balance {balance} BNB ({result} wei)"
 
 
 def flop_chain() -> tuple[bool, str]:
@@ -94,13 +98,19 @@ def flop_models() -> tuple[bool, str]:
 
 
 def flop_page_unscored() -> tuple[bool, str]:
-    """Check whether the public Flop testnet page still says 'unscored'."""
+    """Check whether the public Flop testnet page still says 'unscored'.
+
+    Returns ok=False (with clear evidence) when the page no longer says
+    'unscored' — that is the scored phase possibly opening, the one event
+    this check exists to catch, and it must never hide behind "4/4 OK".
+    """
     text = get_text(FLOP_TESTNET_PAGE_URL)
     if "unscored" in text.lower():
         match = re.search(r".{0,60}unscored.{0,60}", text, re.I | re.S)
         snippet = re.sub(r"\s+", " ", match.group(0)) if match else "unscored"
         return True, f"page says unscored — {snippet.strip()!r}"
-    return True, "page does NOT say unscored anymore (scored phase may be open)"
+    return False, ("page does NOT say unscored anymore — "
+                   "scored phase may be OPEN, check flop.finance/testnet")
 
 
 CHECKS = (

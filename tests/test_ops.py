@@ -180,6 +180,43 @@ class TestVideo(unittest.TestCase):
         self.assertIn("drawbox", f)
         self.assertIn("drawtext", f)
 
+    def test_fit_fontsize(self):
+        from idawati_ops.video import fit_fontsize
+        self.assertEqual(fit_fontsize("animator: by. Labib"), 44)
+        mid = fit_fontsize("animator: by. Labib and a bit more text here")
+        self.assertLess(mid, 44)
+        self.assertGreaterEqual(mid, 16)
+        self.assertEqual(fit_fontsize("x" * 200), 16)
+
+    def test_endcard_filter_fontsize(self):
+        f = endcard_filter("animator: by. Labib", "/some/font.ttf", fontsize=20)
+        self.assertIn("fontsize=20", f)
+
+    def test_square_rejects_bad_limit(self):
+        import argparse
+        from idawati_ops.cli import cmd_square
+        self.assertEqual(
+            cmd_square(argparse.Namespace(min_volume=5_000_000, limit=0, json=False)),
+            2,
+        )
+        self.assertEqual(
+            cmd_square(argparse.Namespace(min_volume=-1, limit=10, json=False)),
+            2,
+        )
+
+    def test_gofrantic_relative_url(self):
+        result = {
+            "content": [{
+                "text": (
+                    '{"board": {"bounties": [{"number": 120, "title": "t", '
+                    '"price_usd": 1, "work_status": "open", '
+                    '"url": "/bounties/p-abc"}]}}'
+                )
+            }]
+        }
+        rows = parse_gofrantic_board(result)
+        self.assertEqual(rows[0]["url"], "https://gofrantic.com/bounties/p-abc")
+
 
 if __name__ == "__main__":
     unittest.main()

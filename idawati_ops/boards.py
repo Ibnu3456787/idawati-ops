@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from .http import HttpError, get_json, post_json
+from .http import HttpError, get_json, post_text
 
 TASK_BOUNTY_URL = "https://www.task-bounty.com/api/v1/tasks"
 GOFRANTIC_MCP_URL = "https://api.gofrantic.com/mcp"
@@ -118,6 +118,9 @@ def parse_gofrantic_board(result: dict) -> list[dict]:
         if not isinstance(item, dict):
             continue
         price = item.get("price_usd")
+        url = str(item.get("url", ""))
+        if url.startswith("/"):
+            url = f"https://gofrantic.com{url}"
         rows.append(
             {
                 "platform": "gofrantic",
@@ -125,7 +128,7 @@ def parse_gofrantic_board(result: dict) -> list[dict]:
                 "title": str(item.get("title", "")),
                 "reward": f"${price:,.2f}" if isinstance(price, (int, float)) else "?",
                 "status": str(item.get("work_status", item.get("status", "open"))),
-                "url": str(item.get("url", "")),
+                "url": url,
             }
         )
     return rows
@@ -165,6 +168,9 @@ def parse_opire_rewards(payload: object) -> list[dict]:
 def fetch_task_bounty() -> tuple[list[dict], str]:
     """Return (rows, note). Raises HttpError on failure."""
     payload = get_json(TASK_BOUNTY_URL)
+    # A changed API shape must read as UNREADABLE, never as "0 open".
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise ValueError("unexpected task-bounty payload")
     rows = parse_task_bounty(payload)
     note = ""
     if isinstance(payload, dict) and isinstance(payload.get("meta"), dict):
@@ -183,11 +189,13 @@ def fetch_gofrantic() -> tuple[list[dict], str]:
             "arguments": {"status": "open", "limit": 20},
         },
     }
-    raw = post_json(
+    raw = post_text(
         GOFRANTIC_MCP_URL,
         payload,
         # The MCP endpoint requires the streamable-HTTP Accept header;
-        # without it the server answers 406 Not Acceptable.
+        # without it the server answers 406 Not Acceptable. The response
+        # may be plain JSON or text/event-stream — post_text returns the
+        # raw body either way and parse_mcp_response handles both.
         headers={"Accept": "application/json, text/event-stream"},
     )
     result = parse_mcp_response(raw)
@@ -202,9 +210,20 @@ def fetch_opire() -> tuple[list[dict], str]:
     try:
         kpis = get_json(OPIRE_KPIS_URL)
         if isinstance(kpis, dict):
+            money = kpis.get("moneyAvailableInBounties")
+            if isinstance(money, dict):
+                money_value = money.get("value", 0)
+            elif isinstance(money, (int, float)):
+                money_value = money
+            else:
+                money_value = 0
+            try:
+                money_str = f"${float(money_value) / 100:,.2f}"
+            except (TypeError, ValueError):
+                money_str = "?"
             note = (
                 f"KPI: {kpis.get('bountiesAvailable', '?')} available, "
-                f"${(kpis.get('moneyAvailableInBounties') or {}).get('value', 0) / 100:,.2f} "
+                f"{money_str} "
                 f"total; {kpis.get('bountiesPaid', '?')} paid all-time"
             )
     except HttpError:

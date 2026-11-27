@@ -24,6 +24,11 @@ CARD_SECONDS = 3
 TOTAL_SECONDS = CLIP_SECONDS * 3 + CARD_SECONDS
 MAROON = "0x6B1F2A"
 GOLD = "D4AF37"
+# End-card text layout: usable width between the frame edges, and the
+# fontsize range. A bold-serif glyph averages ~0.60 x fontsize wide.
+CARD_TEXT_WIDTH = 640
+MAX_FONTSIZE = 44
+MIN_FONTSIZE = 16
 
 _FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
@@ -85,7 +90,21 @@ def endcard_input() -> str:
     return f"color=c={MAROON}:s={WIDTH}x{HEIGHT}:d={CARD_SECONDS}:r={FPS}"
 
 
-def endcard_filter(text: str, font: str) -> str:
+def fit_fontsize(text: str) -> int:
+    """Largest bold-serif fontsize that keeps `text` inside the card.
+
+    A centered drawtext at a fixed 44px silently clips any credit longer
+    than ~28 chars off both frame edges, so shrink the text instead of
+    letting ffmpeg cut it. Never goes below MIN_FONTSIZE — text that
+    still does not fit at that size is rejected by the caller.
+    """
+    if not text:
+        return MAX_FONTSIZE
+    size = int(CARD_TEXT_WIDTH / (0.60 * len(text)))
+    return max(MIN_FONTSIZE, min(MAX_FONTSIZE, size))
+
+
+def endcard_filter(text: str, font: str, fontsize: int = MAX_FONTSIZE) -> str:
     """Build the end-card filtergraph: maroon bg, gold lines, centered text.
 
     Layout: two horizontal gold lines with the credit text between them,
@@ -97,19 +116,27 @@ def endcard_filter(text: str, font: str) -> str:
         f"fps={FPS},format=yuv420p,"
         f"drawbox=x=32:y=520:w={WIDTH - 64}:h=4:color={GOLD}:t=fill,"
         f"drawbox=x=32:y=724:w={WIDTH - 64}:h=4:color={GOLD}:t=fill,"
-        f"drawtext=text='{safe}'{font_opt}:fontsize=44:fontcolor={GOLD}:"
+        f"drawtext=text='{safe}'{font_opt}:fontsize={fontsize}:fontcolor={GOLD}:"
         f"x=(w-text_w)/2:y=(h-text_h)/2"
     )
 
 
 def probe_duration(ffprobe: str, path: str) -> float:
     """Return the duration in seconds of a media file via ffprobe."""
-    out = subprocess.run(
-        [ffprobe, "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", path],
-        capture_output=True, text=True, check=True,
-    )
-    return float(out.stdout.strip())
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True, check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise VideoError(
+            f"ffprobe failed on {path}: {exc.stderr.strip()[-300:]}"
+        ) from exc
+    try:
+        return float(out.stdout.strip())
+    except ValueError as exc:
+        raise VideoError(f"ffprobe returned no duration for {path}") from exc
 
 
 def _run(cmd: list[str], step: str) -> None:
@@ -124,7 +151,7 @@ def _run(cmd: list[str], step: str) -> None:
 def build_video(clips: list[str], audio: str, text: str, out: str) -> dict:
     """Assemble 3 clips + audio + end card into a 30s 9:16 video.
 
-    Returns {"out": path, "duration": seconds, "segments": [paths]}.
+    Returns {"out": path, "duration": seconds}.
     Raises VideoError on any failure. Temporary files are cleaned up.
     """
     if len(clips) != 3:
@@ -136,6 +163,17 @@ def build_video(clips: list[str], audio: str, text: str, out: str) -> dict:
         raise VideoError("end-card --text must not be empty")
     ffmpeg, ffprobe = find_tools()
     font = pick_font()
+    if not font:
+        raise VideoError(
+            "no bold system font found (looked for DejaVu/Liberation) — "
+            "install a font package such as fonts-dejavu-core and retry"
+        )
+    fontsize = fit_fontsize(text)
+    if len(text) * 0.60 * fontsize > CARD_TEXT_WIDTH:
+        raise VideoError(
+            f"end-card text too long for the 704px frame even at "
+            f"{MIN_FONTSIZE}px — shorten it (currently {len(text)} chars)"
+        )
 
     tmp = tempfile.mkdtemp(prefix="idawati-ops-video-")
     try:
@@ -154,7 +192,7 @@ def build_video(clips: list[str], audio: str, text: str, out: str) -> dict:
         _run(
             [ffmpeg, "-y", "-v", "error", "-f", "lavfi",
              "-i", endcard_input(),
-             "-vf", endcard_filter(text, font),
+             "-vf", endcard_filter(text, font, fontsize),
              "-c:v", "libx264", "-pix_fmt", "yuv420p", card],
             "end card",
         )
@@ -184,6 +222,6 @@ def build_video(clips: list[str], audio: str, text: str, out: str) -> dict:
             "mux",
         )
         duration = probe_duration(ffprobe, out)
-        return {"out": out, "duration": duration, "segments": segments}
+        return {"out": out, "duration": duration}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
